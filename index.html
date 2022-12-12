@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.93/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.93/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <title>웹소켓</title>
+</head>
+<body>
+    <div>
+    <h1>flight 3D map 테스트</h1>
+    <h3 id="flightData" style="color:black;">clock</h3>
+    <!-- 버튼 2개 생성 -->
+    <button id="btn_send">연결</button>
+    <button id="btn_close">연결 끊기</button>
+    <p id = "demo"></p>
+    </div>
+    <div id="cesiumContainer"></div>
+</body>
+<script>
+     
+    //---화면 전시부
+    var Target = document.getElementById("flightData");
+    var FDText =  document.getElementById('demo');
+    var position_temp = ['0','0'];
+    var lat = 34.609420;
+    var long =  127.205412; 
+    var height= 100.0;
+    var position = Cesium.Cartesian3.fromDegrees(long, lat, height);
+    var time_iso = "";
+    var cnt = 0;
+    
+   
+    // 웹소켓 클라이언트 객체 생성
+    var webSocket = new WebSocket("ws://localhost:53000");
+    initConnect();
+    
+     //---웹소켓 데이터 처리부
+    function initConnect() {
+        // 2. 웹소켓 이벤트 처리
+        // 2-1) 연결 이벤트 처리
+        webSocket.onopen = ()=>{
+            console.log("웹소켓서버와 연결 성공");
+        };
+
+        // 2-2) 메세지 수신 이벤트 처리
+        webSocket.onmessage = function (event) {
+            console.log(`서버 웹소켓에게 받은 데이터: ${event.data}`);
+            var obj = JSON.parse(event.data);
+
+            FDText.innerHTML = obj.timeStamp+" <br>"+obj.UTC+"</br> "+obj.CallSign+"<br>"+obj.Pos+"</br> "+ obj.Alt+" <br>"+obj.Speed+"</br> "+ obj.Direct;
+
+            console.log(obj.Pos);
+            var value =obj.Pos;
+
+            var isEmpty = isEmptyCheck(value);
+            console.log(`데이터: ${isEmpty}`);
+            let time = Cesium.JulianDate.fromIso8601(isoDate);
+
+            if(isEmpty == true ) {
+                position_temp = obj.Pos.split(',');
+                lat = Number(position_temp[0]);
+                long =  Number(position_temp[1]);
+                height = obj.Alt;
+                
+                position = Cesium.Cartesian3.fromDegrees(long, lat, height);
+                console.log('위치수신');
+            }
+            else {
+                console.log('no data');   
+            }
+        }
+
+        // 2-3) 연결 종료 이벤트 처리
+        webSocket.onclose = function(){
+            console.log("서버 웹소켓 연결 종료");
+        }
+
+        // 2-4) 에러 발생 이벤트 처리
+        webSocket.onerror = function(event){
+            console.log(event)
+        }
+    }
+
+    // 3. 버튼 클릭 이벤트 처리
+    // 3-1) 웹소켓 서버에게 메세지 보내기
+    let count = 1;
+    document.getElementById("btn_send").onclick = function(){
+
+            // 1. 웹소켓 클라이언트 객체 생성
+            //webSocket.OPEN();
+            webSocket = new WebSocket("ws://localhost:3000");
+            initConnect();
+            
+            //alert("연결된 웹소켓 서버가 없습니다.");
+        
+    }
+
+    // 3-2) 웹소켓 서버와 연결 끊기
+    document.getElementById("btn_close").onclick = function(){
+
+        if(webSocket.readyState === webSocket.OPEN){ // 연결 상태 확인
+            webSocket.close(); // 연결 종료
+
+        }else{
+            alert("연결된 웹소켓 서버가 없습니다.");
+        }
+    }
+    
+    // Your access token can be found at: https://cesium.com/ion/tokens.
+    // This is the default access token from your ion account
+
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1ZjJmNWFkNy1jM2YyLTQ3MWMtYTAxYi1mNWU0MWE1Y2M2MzYiLCJpZCI6OTMxNjIsImlhdCI6MTY1MjE3MjYwMn0.r_7y-VpBvzVjY_8tE2zJm2wcPWw5M5RNh3KN_V8NfL4';
+
+    // Initialize the Cesium Viewer in the HTML element with the `cesiumContainer` ID.
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrainProvider: Cesium.createWorldTerrain(),
+    });  
+
+    // Add Cesium OSM Buildings, a global 3D buildings layer.
+    const osmBuildings = viewer.scene.primitives.add(Cesium.createOsmBuildings());     
+
+    const timeStepInSeconds = 30;
+    //const totalSeconds = timeStepInSeconds * (2- 1);
+    var isoDate = new Date().toISOString()
+    time_iso = Cesium.JulianDate.fromIso8601(isoDate);
+    viewer.clock.currentTime = time_iso.clone();
+    
+    // Speed up the playback speed 1x.
+    viewer.clock.multiplier = 1;
+
+    // Start playing the scene.
+    viewer.clock.shouldAnimate = true;
+
+    // The SampledPositionedProperty stores the position and timestamp for each sample along the radar sample series.
+    var positionProperty = new Cesium.SampledPositionProperty(); 
+   
+    positionProperty.addSample(time_iso, position);
+
+   // STEP 6 CODE (airplane entity)
+   async function createAirCraft() {
+      // Load the glTF model from Cesium ion.
+      const airplaneUri = await Cesium.IonResource.fromAssetId(1417597);
+      const airplaneEntity = viewer.entities.add({
+        //availability: new Cesium.TimeIntervalCollection([ new Cesium.TimeInterval({ start: start, stop: stop }) ]),
+        position: positionProperty,
+        minimumPixelSize: 128,
+        //maximumScale: 20000,
+        // Attach the 3D model instead of the green point.
+        model: { uri: airplaneUri },
+        // Automatically compute the orientation from the position.
+       //orientation: new Cesium.VelocityOrientationProperty(positionProperty),    
+        path: new Cesium.PathGraphics({ width: 1 })
+      });
+      viewer.trackedEntity = airplaneEntity;
+    }
+
+    createAirCraft();
+
+    //---TIMER
+    function flightDataDisplay() {
+        let time = new Date();
+
+        let month = time.getMonth();
+        let date = time.getDate();
+        let day = time.getDay();
+        let week = ['일', '월', '화', '수', '목', '금', '토'];
+
+        let hours = time.getHours();
+        let minutes = time.getMinutes();
+        let seconds = time.getSeconds();
+
+        Target.innerText = 
+        `${month + 1}월 ${date}일 ${week[day]}요일 ` +
+        `${hours < 10 ? `0${hours}` : hours}:${minutes < 10 ? `0${minutes}` : minutes}:${seconds < 10 ? `0${seconds}` : seconds}` + " "+position;
+          
+        
+        isoDate = new Date().toISOString()
+        time_iso = Cesium.JulianDate.fromIso8601(isoDate);
+        positionProperty.addSample(time_iso, position);
+        viewer.entities.add({
+        // description: `Location: (${long}, ${lat}, ${height})`,
+            position: position,
+            point: { pixelSize: 5, color: Cesium.Color.RED }
+        });
+    }
+
+    flightDataDisplay();
+
+    setInterval(flightDataDisplay, 50);
+
+    //---data 없는지 check
+    function isEmptyCheck(value) {
+        if( value == "" || value == null || value == undefined || ( value != null && typeof value == "object" && !Object.keys(value).length )|| value =="-" ){
+
+            return false;
+        }
+        else{
+            return true;
+        }
+    };
+
+</script>
+</html>
