@@ -15,12 +15,13 @@ var socket = dgram.createSocket('udp4');
 
 // 2. "/" 경로 라우팅 처리
 app.use("/", (req, res)=>{
+    console.log("open index");
     res.sendFile(path.join(__dirname, './index.html')); // index.html 파일 응답
 })
 
 // 3. 53000 port에서 서버 구동
-const HTTPServer = app.listen(53000, ()=>{
-    console.log("Server is open at port:53000");
+const HTTPServer = app.listen(53010, ()=>{
+    console.log("Server is open at port:53010");
 });
 
 
@@ -72,11 +73,11 @@ webSocketServer.on('connection', (ws, request)=>{
     })
 
     ws.interval = setInterval(() => {
-        // 1초마다 클라이언트로 메시지 전송
+        // 0.1초마다 클라이언트로 메시지 전송
         if (ws.readyState === ws.OPEN) {
           ws.send(data);
         }
-      }, 50);
+      }, 100);
 
     
 });
@@ -90,7 +91,7 @@ socket.on('listening', function() {
 });
 
 socket.on('message', function(msg, rinfo) {
-    console.log('메세지 도착', rinfo.address, msg.toString());
+    //console.log('메세지 도착', rinfo.address, msg.toString());
     
     var UTC = Buffer.alloc(20);
     var CallSign = Buffer.alloc(20);

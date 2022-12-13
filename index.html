@@ -14,6 +14,7 @@
     <!-- 버튼 2개 생성 -->
     <button id="btn_send">연결</button>
     <button id="btn_close">연결 끊기</button>
+    <button id="btn_track">위치 찾기</button>
     <p id = "demo"></p>
     </div>
     <div id="cesiumContainer"></div>
@@ -26,14 +27,22 @@
     var position_temp = ['0','0'];
     var lat = 34.609420;
     var long =  127.205412; 
-    var height= 100.0;
+    var height= 30.0;
     var position = Cesium.Cartesian3.fromDegrees(long, lat, height);
     var time_iso = "";
     var cnt = 0;
+    var head_tmp = 0;
+    var heading = Cesium.Math.toRadians(0);
+    var pitch = Cesium.Math.toRadians(0);
+    var roll = Cesium.Math.toRadians(0);
+    var hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
+    var orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);//new Cesium.ConstantProperty(Cesium.Transforms.headingPitchRollQuaternion(position, hpr));//Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+    //console.log("each hpr:", heading, pitch, roll);
+    //console.log("hpr:", hpr);
+    //console.log("ori:", orientation);
     
-   
     // 웹소켓 클라이언트 객체 생성
-    var webSocket = new WebSocket("ws://localhost:53000");
+    var webSocket = new WebSocket("ws://58.120.27.194:53010/");
     initConnect();
     
      //---웹소켓 데이터 처리부
@@ -46,26 +55,33 @@
 
         // 2-2) 메세지 수신 이벤트 처리
         webSocket.onmessage = function (event) {
-            console.log(`서버 웹소켓에게 받은 데이터: ${event.data}`);
-            var obj = JSON.parse(event.data);
+            //console.log(`서버 웹소켓에게 받은 데이터: ${event.data}`);
+            
+            const jsonObj = JSON.parse(event.data);            
+            const value   = jsonObj.Pos;
+            const isEmpty = isEmptyCheck(value);            
+            const time    = Cesium.JulianDate.fromIso8601(isoDate);
 
-            FDText.innerHTML = obj.timeStamp+" <br>"+obj.UTC+"</br> "+obj.CallSign+"<br>"+obj.Pos+"</br> "+ obj.Alt+" <br>"+obj.Speed+"</br> "+ obj.Direct;
+            FDText.innerHTML = jsonObj.timeStamp+" <br>"+jsonObj.UTC+"</br> "+jsonObj.CallSign+"<br>"+jsonObj.Pos+"</br> "+ jsonObj.Alt+" <br>"+jsonObj.Speed+"</br> "+ jsonObj.Direct;
 
-            console.log(obj.Pos);
-            var value =obj.Pos;
-
-            var isEmpty = isEmptyCheck(value);
-            console.log(`데이터: ${isEmpty}`);
-            let time = Cesium.JulianDate.fromIso8601(isoDate);
-
+            //--- 수신 Data 존재할 경우
             if(isEmpty == true ) {
-                position_temp = obj.Pos.split(',');
+                position_temp = jsonObj.Pos.split(',');
                 lat = Number(position_temp[0]);
                 long =  Number(position_temp[1]);
-                height = obj.Alt;
+                height = jsonObj.Alt;
+                head_tmp = jsonObj.Direct;
                 
                 position = Cesium.Cartesian3.fromDegrees(long, lat, height);
-                console.log('위치수신');
+
+                heading = Cesium.Math.toRadians(Number(head_tmp)); //jsonObj.Direct;            
+                pitch   = Cesium.Math.toRadians(0);
+                roll    = Cesium.Math.toRadians(0);
+                hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
+                //console.log("each hpr_d:", heading, pitch, roll);
+                //console.log("hpr_d:", hpr);
+                orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr);//new Cesium.ConstantProperty(Cesium.Transforms.headingPitchRollQuaternion(position, hpr));//Cesium.Transforms.headingPitchRollQuaternion(position, hpr);
+                //console.log("ori_d:", orientation);
             }
             else {
                 console.log('no data');   
@@ -85,12 +101,11 @@
 
     // 3. 버튼 클릭 이벤트 처리
     // 3-1) 웹소켓 서버에게 메세지 보내기
-    let count = 1;
     document.getElementById("btn_send").onclick = function(){
 
             // 1. 웹소켓 클라이언트 객체 생성
             //webSocket.OPEN();
-            webSocket = new WebSocket("ws://localhost:3000");
+            webSocket = new WebSocket("ws://58.120.27.194:53010/");
             initConnect();
             
             //alert("연결된 웹소켓 서버가 없습니다.");
@@ -106,6 +121,13 @@
         }else{
             alert("연결된 웹소켓 서버가 없습니다.");
         }
+    }
+     // 3-2) 웹소켓 서버와 연결 끊기
+    document.getElementById("btn_track").onclick = function(){
+        let cam_pos = Cesium.Cartesian3.fromDegrees(long, lat, height+1000);
+        viewer.camera.flyTo({
+            destination: cam_pos
+        });
     }
     
     // Your access token can be found at: https://cesium.com/ion/tokens.
@@ -128,7 +150,7 @@
     viewer.clock.currentTime = time_iso.clone();
     
     // Speed up the playback speed 1x.
-    viewer.clock.multiplier = 1;
+   // viewer.clock.multiplier = 1;
 
     // Start playing the scene.
     viewer.clock.shouldAnimate = true;
@@ -139,25 +161,34 @@
     positionProperty.addSample(time_iso, position);
 
    // STEP 6 CODE (airplane entity)
+   
    async function createAirCraft() {
-      // Load the glTF model from Cesium ion.
-      const airplaneUri = await Cesium.IonResource.fromAssetId(1417597);
-      const airplaneEntity = viewer.entities.add({
-        //availability: new Cesium.TimeIntervalCollection([ new Cesium.TimeInterval({ start: start, stop: stop }) ]),
-        position: positionProperty,
-        minimumPixelSize: 128,
-        //maximumScale: 20000,
-        // Attach the 3D model instead of the green point.
-        model: { uri: airplaneUri },
-        // Automatically compute the orientation from the position.
-       //orientation: new Cesium.VelocityOrientationProperty(positionProperty),    
-        path: new Cesium.PathGraphics({ width: 1 })
-      });
-      viewer.trackedEntity = airplaneEntity;
+        // Load the glTF model from Cesium ion.
+
+        //const airplaneUri = await Cesium.IonResource.fromAssetId(1417597);
+        const airplaneUri = await Cesium.IonResource.fromAssetId(991980);
+        
+        const airplaneEntity = viewer.entities.add({
+
+            position: positionProperty,
+
+            // Attach the 3D model instead of the green point.
+            model: { uri: airplaneUri, 
+                minimumPixelSize: 128,
+                maximumScale: 20000,
+            },
+            // Automatically compute the orientation from the position.
+            //orientation: new Cesium.VelocityOrientationProperty(positionProperty),    
+            orientation : orientation,
+            path: new Cesium.PathGraphics({ width: 1 })
+        });
+
+        viewer.trackedEntity = airplaneEntity;
     }
 
     createAirCraft();
 
+    
     //---TIMER
     function flightDataDisplay() {
         let time = new Date();
@@ -178,17 +209,27 @@
         
         isoDate = new Date().toISOString()
         time_iso = Cesium.JulianDate.fromIso8601(isoDate);
+
         positionProperty.addSample(time_iso, position);
-        viewer.entities.add({
-        // description: `Location: (${long}, ${lat}, ${height})`,
+        
+        //var temp_ori = Cesium.VelocityOrientationProperty(positionProperty);
+
+        //console.log("ori_c:", new Cesium.VelocityOrientationProperty(positionProperty));
+        //console.log("ori:", orientation);
+       
+        viewer.entities.add({            
             position: position,
+            //orientation : new Cesium.VelocityOrientationProperty(positionProperty),
             point: { pixelSize: 5, color: Cesium.Color.RED }
         });
+        
+
+        
     }
 
     flightDataDisplay();
 
-    setInterval(flightDataDisplay, 50);
+    setInterval(flightDataDisplay,100);
 
     //---data 없는지 check
     function isEmptyCheck(value) {
